@@ -1,295 +1,444 @@
 package bookmyshow;
-/*
-
- User - Select City -> List all the movies from the city -> User Selects the movie ->  List all the available Movie Theateres ,  User Select available shows
--> user selects seats from available seats --- > make payment -> seat confirmed.
-
-Entities - USer , City , Movie  , Theatre , SEAT , Show , Payment
- */
-
-
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
-class User{
+/*
+    BOOKMYSHOW LLD
+
+    FLOW
+
+    User -> Select City
+         -> List Movies
+         -> Select Movie
+         -> List Shows
+         -> Select Seats
+         -> Seat Lock
+         -> Payment
+         -> Booking Confirmed
+
+    ENTITY RELATIONSHIP
+
+    City
+      ↓
+    Theatre
+      ↓
+    Screen
+      ↓
+    Show
+      ↓
+    Seats
+
+    KEY DESIGN DECISIONS
+
+    1. Seats belong to Screen (layout)
+    2. Each Show maintains its own seatMap for seat availability
+    3. Seat level locking used for high concurrency
+    4. ReentrantLock.tryLock() used to avoid blocking
+    5. Seats sorted before locking to avoid deadlocks
+*/
+
+
+/* ================= USER ================= */
+
+class User {
+
     String id;
     String name;
     String phone;
-    City currentCity;
 
-    public User(String id, String name, String phone, City currentCity) {
-        this.id = id;
-        this.name = name;
-        this.phone = phone;
-        this.currentCity = currentCity;
-    }
-}
-
-class UserService{
-    Map<String , User> map = new HashMap<>();
-    static UserService userService = new UserService();
-    private UserService() {
-        this.map = new HashMap<>();
-    }
-  static  UserService getUserServiceInstance() {
-        return userService;
-    }
-    User getUser(String id) {
-        return map.get(id);
-    }
-    void createUser(User user) {
-        map.put(user.id, user);
-    }
-    void updateCity(String userId , City city) {
-        User user = map.get(userId);
-        user.currentCity = city;
-    }
-}
-
-class City{
-    String name;
-    String state;
-}
-
-class Movie{
-    String movieName;
-    String id;
-    long duration;
-    List<City> cities = new ArrayList<>();
-}
-
-class MovieService{
-    Map<String , Movie> movieMap = new HashMap<>();
-    static MovieService movieService = new MovieService();
-    private MovieService() { movieMap = new HashMap<>(); }
-    Movie getMovie(String id) {
-        return movieMap.get(id);
-    }
-
-    static MovieService  getMovieServiceInstance() {
-        return movieService;
-    }
-
-    void createMovie(Movie movie) {
-        movieMap.put(movie.movieName, movie);
-    }
-
-}
-
-class Theatre{
-    String id;
-    String name;
     City city;
-    HashSet<String> movies;
 
-    public Theatre(String id, String name, City city) {
-        this.id = id;
-        this.name = name;
-        this.city = city;
-        this.movies = new HashSet<>();
+    User(String id,String name,String phone,City city){
+        this.id=id;
+        this.name=name;
+        this.phone=phone;
+        this.city=city;
     }
 }
 
-class TheatreService{
-    Map<String , Theatre> theatreMap = new HashMap<>();
-    static TheatreService theatreService = new TheatreService();
-    MovieService moviesService = MovieService.getMovieServiceInstance();
-    Theatre getTheatre(String id) {
-        return theatreMap.get(id);
-    }
-    static TheatreService  getTheatreServiceInstance() {
-        return theatreService;
-    }
-    void createTheatre(Theatre theatre) {
-        theatreMap.put(theatre.id, theatre);
-    }
-    List<Theatre> getTheatresByCity(City city) {
-        List<Theatre> theatres = new ArrayList<>();
-        for (Map.Entry<String , Theatre> entry : theatreMap.entrySet()) {
-            Theatre theatre = entry.getValue();
-            if (theatre.city.equals(city)) {
-                theatres.add(theatre);
-            }
-        }
-        return theatres;
-    }
-    List<Movie> getMoviesByCity(String cityName) {
-        List<String> movieIds = new ArrayList<>();
-        for (Map.Entry<String , Theatre> entry : theatreMap.entrySet()) {
-            Theatre theatre = entry.getValue();
-            if (theatre.city.equals(cityName)) {
-                movieIds.addAll(theatre.movies);
-            }
-        }
-        List<Movie> movies = new ArrayList<>();
-        for(String movieId : movieIds) {
-            Movie movie = moviesService.getMovie(movieId);
-            movies.add(movie);
-        }
-        return movies;
-    }
 
-    List<Theatre> getTheatresByMovieId(String movieId) {
-        List<Theatre> theatres = new ArrayList<>();
-        for(Map.Entry<String , Theatre> entry : theatreMap.entrySet()) {
-            Theatre theatre = entry.getValue();
-           if(theatre.movies.contains(movieId)) {
-               theatres.add(theatre);
-           }
-        }
-        return theatres;
+/* ================= CITY ================= */
+
+class City {
+
+    String name;
+
+    City(String name){
+        this.name=name;
     }
 }
 
-class Show{
+
+/* ================= MOVIE ================= */
+
+class Movie {
+
+    String id;
+    String name;
+
+    int duration;
+
+    Movie(String id,String name,int duration){
+        this.id=id;
+        this.name=name;
+        this.duration=duration;
+    }
+}
+
+
+/* ================= THEATRE ================= */
+
+class Theatre {
+
+    String id;
+    String name;
+
+    City city;
+
+    // one theatre contains multiple screens
+    List<Screen> screens = new ArrayList<>();
+
+    Theatre(String id,String name,City city){
+        this.id=id;
+        this.name=name;
+        this.city=city;
+    }
+}
+
+
+/* ================= SCREEN ================= */
+
+class Screen {
+
     String id;
     String theatreId;
-    String movieId;
-    LocalDateTime starTime;
-    LocalDateTime endTime;
-    Map<String , Seat> seatMap;
 
-    public Show(String id, String theatreId, String movieId, LocalDateTime starTime, LocalDateTime endTime) {
-        this.id = id;
-        this.theatreId = theatreId;
-        this.movieId = movieId;
-        this.starTime = starTime;
-        this.endTime = endTime;
-        this.seatMap = new ConcurrentHashMap<>();
-    }
-}
-class ShowService{
-    Map<String , Show> showMap = new HashMap<>();
-    static ShowService showService = new ShowService();
-    BookingService bookingService = BookingService.getBookingServiceInstance() ;
-    Show getShow(String id) {
-        return showMap.get(id);
-    }
-    static ShowService  getShowServiceInstance() {
-        return showService;
-    }
-    void createShow(Show show) {
-        showMap.put(show.id, show);
-    }
-    List<Show> getShowsByTheatre(String theatreId) {
-        List<Show> shows = new ArrayList<>();
-        for (Map.Entry<String , Show> entry : showMap.entrySet()) {
-            Show show = entry.getValue();
-             if (show.theatreId.equals(theatreId)) {
-                 shows.add(show);
-             }
-        }
-        return shows;
-    }
-    Map<String, Seat> getSeatMap(String showID){
-        Show show = showMap.get(showID);
-        return show.seatMap;
-    }
+    // seat layout of the screen
+    List<Seat> seats = new ArrayList<>();
 
-    Booking bookShowSeat(String showId , List<String> seatIds){
-        Show show = showMap.get(showId);
-        boolean isAllSeatsAvailable = true;
-        if(show.seatMap.containsKey(show.id)){
-            Seat seat = show.seatMap.get(show.id);
-            if(!seat.isAvailable){
-                throw new RuntimeException("Seats not available to book");
-            }
-        }
-      Booking booking =  bookingService.book(show, seatIds);
-        return booking;
+    Screen(String id,String theatreId){
+        this.id=id;
+        this.theatreId=theatreId;
     }
 }
 
-class Booking{
-    String bookingId;
-    String paymentId;
-    List<String> seatIds;
-    Movie movie;
-    BookingStatus bookingStatus;
 
-    public Booking(String bookingId, String paymentId, List<String> seatIds, Movie movie, BookingStatus bookingStatus) {
-        this.bookingId = bookingId;
-        this.paymentId = paymentId;
-        this.seatIds = seatIds;
-        this.movie = movie;
-        this.bookingStatus = bookingStatus;
-    }
-}
-enum BookingStatus{
-    FAILED,CONFIRMED
-}
-class BookingService{
-    Map<String ,Booking> bookings = new HashMap<>();
-    static BookingService bookingService = new BookingService();
-    PaymentService paymentService = PaymentService.getPaymentServiceInstance();
-    MovieService movieService = MovieService.getMovieServiceInstance();
-    private BookingService(){
-        bookings = new HashMap<>();
-    }
-    static BookingService getBookingServiceInstance() {
-        return bookingService;
-    }
-    Booking book(Show show , List<String> seatIds){
-        String bookingId = UUID.randomUUID().toString();
-        double amount = 100; // this can be calculated dynamically with strategy
-        Payment payment = paymentService.payment(bookingId ,amount );
-        return new Booking(bookingId , payment.paymentId , seatIds , movieService.getMovie(show.movieId) , BookingStatus.CONFIRMED);
-    }
-}
-class Payment{
-    public Payment(String paymentId, PaymentStatus paymentStatus, double totalPrice, PaymentMode paymentMode) {
-        this.paymentId = paymentId;
-        this.paymentStatus = paymentStatus;
-        this.totalPrice = totalPrice;
-        this.paymentMode = paymentMode;
-    }
-
-    String paymentId;
-    PaymentStatus paymentStatus;
-    double totalPrice;
-    PaymentMode paymentMode;
-}
-enum PaymentMode{
-    UPI,CARD
-}
-enum PaymentStatus{
-    FAILED,SUCCESS
-}
-class PaymentService{
-    Map<String , Payment> payments = new HashMap<>();
-    static PaymentService paymentService = new PaymentService();
-    private PaymentService(){
-
-    }
-    static PaymentService getPaymentServiceInstance() {
-        return paymentService;
-    }
-    Payment payment(String bookingId , double totalPrice) {
-        return new Payment(UUID.randomUUID().toString(), PaymentStatus.SUCCESS, totalPrice, PaymentMode.UPI);
-    }
-}
-
-class Seat{
-    String id;
-    SeatType seatType;
-    boolean isAvailable;
-}
+/* ================= SEAT ================= */
 
 enum SeatType{
     STANDARD,RECLINER
 }
 
-class BookMyShowAppService{
-    UserService userService = UserService.getUserServiceInstance();
-    MovieService movieService = MovieService.getMovieServiceInstance();
-    TheatreService theatreService = TheatreService.getTheatreServiceInstance();
-
-
+enum SeatStatus{
+    AVAILABLE,LOCKED,BOOKED
 }
 
-class BookMyShowApp {
+class Seat {
+
+    String id;
+
+    SeatType type;
+
+    // current seat state
+    SeatStatus status = SeatStatus.AVAILABLE;
+
+    // user who locked the seat
+    String lockedBy;
+
+    // lock expiry time (used in real systems for seat hold timeout)
+    long lockExpiry;
+
+    // seat level lock for concurrency control
+    ReentrantLock lock = new ReentrantLock();
+
+    Seat(String id,SeatType type){
+        this.id=id;
+        this.type=type;
+    }
+}
+
+
+/* ================= SHOW ================= */
+
+class Show {
+
+    String id;
+
+    String movieId;
+    String screenId;
+
+    LocalDateTime startTime;
+    LocalDateTime endTime;
+
+    /*
+       Each show maintains its own seat map because
+       seat availability changes per show.
+    */
+    Map<String,Seat> seatMap = new ConcurrentHashMap<>();
+
+    Show(String id,String movieId,String screenId,
+         LocalDateTime start,LocalDateTime end){
+
+        this.id=id;
+        this.movieId=movieId;
+        this.screenId=screenId;
+        this.startTime=start;
+        this.endTime=end;
+    }
+}
+
+
+/* ================= BOOKING ================= */
+
+enum BookingStatus{
+    CONFIRMED,FAILED
+}
+
+class Booking {
+
+    String bookingId;
+
+    String userId;
+    String showId;
+
+    List<String> seats;
+
+    String paymentId;
+
+    BookingStatus status;
+
+    Booking(String bookingId,String userId,String showId,
+            List<String> seats,String paymentId,BookingStatus status){
+
+        this.bookingId=bookingId;
+        this.userId=userId;
+        this.showId=showId;
+        this.seats=seats;
+        this.paymentId=paymentId;
+        this.status=status;
+    }
+}
+
+
+/* ================= PAYMENT ================= */
+
+enum PaymentMode{
+    CARD,UPI
+}
+
+enum PaymentStatus{
+    SUCCESS,FAILED
+}
+
+class Payment {
+
+    String id;
+
+    double amount;
+
+    PaymentMode mode;
+    PaymentStatus status;
+
+    Payment(String id,double amount){
+        this.id=id;
+        this.amount=amount;
+        this.mode=PaymentMode.UPI;
+        this.status=PaymentStatus.SUCCESS;
+    }
+}
+
+
+/* ================= PAYMENT SERVICE ================= */
+
+class PaymentService {
+
+    Payment pay(double amount){
+
+        // simulate successful payment
+        return new Payment(UUID.randomUUID().toString(),amount);
+    }
+}
+
+
+/* ================= BOOKING SERVICE ================= */
+
+class BookingService {
+
+    Map<String,Booking> bookings = new HashMap<>();
+
+    PaymentService paymentService = new PaymentService();
+
+    // seat lock expiry time (5 minutes)
+    static final long LOCK_TIME = 300000;
+
+
+    Booking book(User user, Show show, List<String> seatIds){
+
+        List<Seat> seats = new ArrayList<>();
+
+        // fetch seat objects
+        for(String id : seatIds){
+
+            Seat seat = show.seatMap.get(id);
+
+            if(seat == null)
+                throw new RuntimeException("Seat not found");
+
+            seats.add(seat);
+        }
+
+        /*
+            IMPORTANT
+
+            Sort seats before locking to avoid deadlocks.
+            Ensures all threads acquire locks in same order.
+        */
+        seats.sort(Comparator.comparing(s -> s.id));
+
+        List<Seat> lockedSeats = new ArrayList<>();
+
+        try{
+
+            /*
+               Step 1: Try acquiring locks on all seats
+               If any seat lock fails → fail fast
+            */
+
+            for(Seat seat : seats){
+
+                boolean locked = seat.lock.tryLock();
+
+                if(!locked){
+                    throw new RuntimeException("Seat busy");
+                }
+
+                lockedSeats.add(seat);
+            }
+
+
+            /*
+               Step 2: Validate seat availability
+            */
+
+            for(Seat seat : seats){
+
+                if(seat.status != SeatStatus.AVAILABLE){
+                    throw new RuntimeException("Seat unavailable");
+                }
+            }
+
+
+            /*
+               Step 3: Lock seats for the user
+            */
+
+            for(Seat seat : seats){
+
+                seat.status = SeatStatus.LOCKED;
+                seat.lockedBy = user.id;
+                seat.lockExpiry = System.currentTimeMillis() + LOCK_TIME;
+            }
+
+
+            /*
+               Step 4: Payment
+            */
+
+            Payment payment = paymentService.pay(100);
+
+
+            /*
+               Step 5: Confirm booking
+            */
+
+            for(Seat seat : seats){
+                seat.status = SeatStatus.BOOKED;
+            }
+
+
+            String bookingId = UUID.randomUUID().toString();
+
+            Booking booking = new Booking(
+                    bookingId,
+                    user.id,
+                    show.id,
+                    seatIds,
+                    payment.id,
+                    BookingStatus.CONFIRMED
+            );
+
+            bookings.put(bookingId,booking);
+
+            return booking;
+
+        } finally {
+
+            /*
+               Always release locks
+            */
+
+            for(Seat seat : lockedSeats){
+                seat.lock.unlock();
+            }
+        }
+    }
+}
+
+
+/* ================= APPLICATION ================= */
+
+public class BookMyShowApp {
+
     public static void main(String[] args) {
 
+        // create city
+        City city = new City("Bangalore");
+
+        // create movie
+        Movie movie = new Movie("M1","Interstellar",180);
+
+        // create theatre
+        Theatre theatre = new Theatre("T1","PVR",city);
+
+        // create screen
+        Screen screen = new Screen("S1","T1");
+
+        // create seat layout
+        for(int i=1;i<=10;i++){
+            screen.seats.add(new Seat("A"+i,SeatType.STANDARD));
+        }
+
+        theatre.screens.add(screen);
+
+        // create show
+        Show show = new Show(
+                "SHOW1",
+                movie.id,
+                screen.id,
+                LocalDateTime.now(),
+                LocalDateTime.now().plusHours(3)
+        );
+
+        // initialize show seat availability
+        for(Seat seat : screen.seats){
+            show.seatMap.put(seat.id,new Seat(seat.id,seat.type));
+        }
+
+        // create user
+        User user = new User("U1","Prateek","999999",city);
+
+        // booking service
+        BookingService bookingService = new BookingService();
+
+        // book seats
+        Booking booking = bookingService.book(
+                user,
+                show,
+                Arrays.asList("A1","A2")
+        );
+
+        System.out.println("Booking confirmed: " + booking.bookingId);
     }
 }

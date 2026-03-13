@@ -4,7 +4,17 @@
     import java.util.Set;
 
     enum LOG_TYPE {
-        INFO,DEBUG,ERROR
+        INFO(1),
+        DEBUG(2),
+        ERROR(3);
+
+        int level;
+        LOG_TYPE(int level) {
+            this.level = level;
+        }
+        public int getLevel() {
+            return level;
+        }
     }
 
 
@@ -27,7 +37,7 @@
         }
         void log(LOG_TYPE logType, String message) {
 
-            if (logType.ordinal() >= this.type.ordinal()) {
+            if (logType.getLevel()  >= this.type.ordinal()) {
                 for(Writer writer : writers) {
                     writer.write(message);
                 }
